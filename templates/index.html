@@ -195,7 +195,130 @@
     <div class="spinner"></div>
   </div>
 
+  <!-- ════════════════════════════════════════════════════════════
+       AI BIRTHDAY CARD GENERATOR MODAL
+  ════════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" id="cardModal" role="dialog" aria-modal="true"
+       aria-labelledby="cardModalTitle" hidden>
+    <div class="modal-card card-modal-card">
+
+      <!-- Header -->
+      <div class="modal-header">
+        <h2 class="modal-title" id="cardModalTitle">🎂 Generate AI Birthday Card</h2>
+        <button class="btn-icon modal-close" id="closeCardModal" aria-label="Close">&times;</button>
+      </div>
+
+      <!-- ── Step 1: Options ── -->
+      <div id="cardOptions">
+
+        <!-- Hidden: who this card is for -->
+        <input type="hidden" id="cardBdId"/>
+        <input type="hidden" id="cardBdName"/>
+        <input type="hidden" id="cardBdDate"/>
+
+        <!-- For whom -->
+        <div class="card-for-banner">
+          <span class="card-for-label">For:</span>
+          <span class="card-for-name" id="cardForName"></span>
+          <span class="card-for-age" id="cardForAge"></span>
+        </div>
+
+        <!-- Relationship -->
+        <div class="form-group">
+          <label for="cardRelationship">Relationship</label>
+          <input type="text" id="cardRelationship" placeholder="e.g. best friend, colleague, sister…" maxlength="40"/>
+        </div>
+
+        <!-- Tone selection -->
+        <div class="form-group">
+          <label>Tone</label>
+          <div class="pill-group" id="toneGroup" role="group" aria-label="Select tone">
+            <button class="pill-btn tone-btn active" data-tone="Emotional">💛 Emotional</button>
+            <button class="pill-btn tone-btn" data-tone="Funny">😄 Funny</button>
+            <button class="pill-btn tone-btn" data-tone="Professional">💼 Professional</button>
+            <button class="pill-btn tone-btn" data-tone="Best Friend">🤗 Best Friend</button>
+          </div>
+        </div>
+
+        <!-- Theme selection -->
+        <div class="form-group">
+          <label>Card Theme</label>
+          <div class="pill-group" id="themeGroup" role="group" aria-label="Select theme">
+            <button class="pill-btn theme-btn active" data-theme="Classic">🌸 Classic</button>
+            <button class="pill-btn theme-btn" data-theme="Cute">🎀 Cute</button>
+            <button class="pill-btn theme-btn" data-theme="Modern">⚡ Modern</button>
+            <button class="pill-btn theme-btn" data-theme="Minimal">🤍 Minimal</button>
+          </div>
+        </div>
+
+        <!-- AI Background image toggle -->
+        <div class="form-group ai-bg-row">
+          <label class="toggle-label">
+            <input type="checkbox" id="useAiBg" class="toggle-checkbox"/>
+            <span class="toggle-slider"></span>
+            Generate AI background image
+            <span class="optional">(uses DALL·E 3 — extra cost)</span>
+          </label>
+        </div>
+
+        <!-- Action -->
+        <span class="field-error" id="cardError"></span>
+        <div class="form-actions" style="margin-top:1rem;">
+          <button type="button" class="btn btn-ghost" id="cancelCardModal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="generateCardBtn">✨ Generate Card</button>
+        </div>
+      </div>
+
+      <!-- ── Step 2: Card Preview ── -->
+      <div id="cardPreview" hidden>
+
+        <!-- Confetti canvas sits behind the card -->
+        <canvas id="confettiCanvas" class="confetti-canvas" aria-hidden="true"></canvas>
+
+        <!-- The actual printable card -->
+        <div class="birthday-card" id="birthdayCard" data-cardtheme="Classic">
+          <!-- Decorative top band -->
+          <div class="card-top-band"></div>
+
+          <!-- Background overlay (for AI-generated image) -->
+          <div class="card-bg-overlay" id="cardBgOverlay"></div>
+
+          <!-- Card content -->
+          <div class="card-content">
+            <div class="card-emoji" id="cardEmoji">🎂</div>
+            <h2 class="card-recipient" id="cardRecipient"></h2>
+            <p  class="card-short-msg" id="cardShortMsg"></p>
+            <div class="card-divider"><span>✦</span></div>
+            <p  class="card-long-msg"  id="cardLongMsg"></p>
+            <div class="card-footer">
+              <span class="card-footer-date" id="cardFooterDate"></span>
+            </div>
+          </div>
+
+          <!-- Decorative corner flourishes -->
+          <div class="card-corner top-left"></div>
+          <div class="card-corner top-right"></div>
+          <div class="card-corner bottom-left"></div>
+          <div class="card-corner bottom-right"></div>
+        </div>
+
+        <!-- Controls below the card -->
+        <div class="card-controls">
+          <button class="btn btn-ghost btn-sm" id="regenCardBtn">🔄 Regenerate</button>
+          <button class="btn btn-ghost btn-sm" id="aiBgBtn" title="Generate AI background">🖼 AI Background</button>
+          <button class="btn btn-primary btn-sm" id="downloadPng">⬇ PNG</button>
+          <button class="btn btn-primary btn-sm" id="downloadPdf">📄 PDF</button>
+        </div>
+        <p class="card-hint">Tip: for best results hide the browser navbar before capturing.</p>
+      </div>
+
+    </div>
+  </div>
+
   <!-- App JavaScript (loaded after DOM) -->
+  <!-- html2canvas + jsPDF — served locally to avoid CDN failures -->
+  <script src="/static/js/vendor/html2canvas.min.js"></script>
+  <script src="/static/js/vendor/jspdf.umd.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

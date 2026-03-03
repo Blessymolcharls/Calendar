@@ -70,6 +70,14 @@ const API = (() => {
     /** Delete an event by id */
     deleteEvent: (id) =>
       request(`/events/${id}`, { method: "DELETE" }),
+
+    /** Generate AI birthday card messages — body: { name, age, relationship, tone } */
+    generateCard: (body) =>
+      request("/generate_card", { method: "POST", body: JSON.stringify(body) }),
+
+    /** Generate AI background image — body: { theme, tone } */
+    generateCardImage: (body) =>
+      request("/generate_card_image", { method: "POST", body: JSON.stringify(body) }),
   };
 })();
 
@@ -320,14 +328,22 @@ const BirthdayList = (() => {
           ${bd.note ? `<div class="bd-note">📝 ${escHtml(bd.note)}</div>` : ""}
         </div>
         <div class="bd-actions">
-          <button class="btn-edit"   title="Edit"   data-id="${bd.id}">✏️</button>
-          <button class="btn-delete" title="Delete" data-id="${bd.id}">🗑️</button>
+          <button class="btn-card"   title="Generate AI Card" data-id="${bd.id}">🎂</button>
+          <button class="btn-edit"   title="Edit"             data-id="${bd.id}">✏️</button>
+          <button class="btn-delete" title="Delete"           data-id="${bd.id}">🗑️</button>
         </div>
       `;
       list.appendChild(li);
     }
 
-    // Delegate edit/delete button clicks
+    // Delegate card / edit / delete button clicks
+    list.querySelectorAll(".btn-card").forEach((btn) =>
+      btn.addEventListener("click", (e) => {
+        const id = e.currentTarget.dataset.id;
+        const bd = State.get("birthdays").find((b) => b.id === id);
+        if (bd) CardGenerator.open(bd);
+      })
+    );
     list.querySelectorAll(".btn-edit").forEach((btn) =>
       btn.addEventListener("click", (e) => {
         const id = e.currentTarget.dataset.id;
@@ -397,27 +413,75 @@ const Modal = (() => {
     nameInput.focus();
   }
 
+  /** Return age a person turns this year, or null if birth year is unknown */
+  function _calcAge(dateISO) {
+    const yr = parseInt((dateISO || "").split("-")[0], 10);
+    if (!yr || yr < 1900) return null;
+    return new Date().getFullYear() - yr;
+  }
+
   /** Open day-detail modal for a given ISO date and its birthday list */
-  function openDayModal(iso, bds) {
+  async function openDayModal(iso, bds) {
     _selectedDate = iso;
-    dayTitle.textContent = `Birthdays — ${formatDisplayDate(iso)}`;
+    const isToday = iso === State.todayISO();
+    dayTitle.textContent = `${isToday ? "🎉 Today — " : ""}${formatDisplayDate(iso)}`;
     dayList.innerHTML = "";
 
     if (!bds.length) {
       dayList.innerHTML = `<p class="no-birthdays-msg">No birthdays on this day.</p>`;
     } else {
       for (const bd of bds) {
+        const age = _calcAge(bd.date);
+        const ageLabel = age !== null
+          ? (isToday
+              ? ` <span class="age-badge today-age">Turns ${age}! 🎉</span>`
+              : ` <span class="age-badge">Age ${age}</span>`)
+          : "";
         const div = document.createElement("div");
         div.classList.add("day-bd-item");
         div.innerHTML = `
-          <div class="bd-avatar" style="width:32px;height:32px;font-size:0.8rem;">${bd.name.charAt(0).toUpperCase()}</div>
-          <div>
-            <div class="day-bd-name">${escHtml(bd.name)}</div>
+          <div class="bd-avatar" style="width:36px;height:36px;font-size:0.85rem;flex-shrink:0">${bd.name.charAt(0).toUpperCase()}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="day-bd-name">${escHtml(bd.name)}${ageLabel}</div>
             ${bd.note ? `<div class="day-bd-note">📝 ${escHtml(bd.note)}</div>` : ""}
+          </div>
+          <div class="bd-actions">
+            <button class="btn-card"   title="Generate AI Card" data-id="${bd.id}">🎂</button>
+            <button class="btn-edit"   title="Edit"             data-id="${bd.id}">✏️</button>
+            <button class="btn-delete" title="Delete"           data-id="${bd.id}">🗑️</button>
           </div>
         `;
         dayList.appendChild(div);
       }
+
+      // Wire per-birthday action buttons
+      dayList.querySelectorAll(".btn-card").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          const bd = State.get("birthdays").find((b) => b.id === btn.dataset.id);
+          if (bd) { closeDayModal(); CardGenerator.open(bd); }
+        })
+      );
+      dayList.querySelectorAll(".btn-edit").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          const bd = State.get("birthdays").find((b) => b.id === btn.dataset.id);
+          if (bd) { closeDayModal(); Modal.openEditModal(bd); }
+        })
+      );
+      dayList.querySelectorAll(".btn-delete").forEach((btn) =>
+        btn.addEventListener("click", () => {
+          closeDayModal();
+          App.deleteBirthday(btn.dataset.id);
+        })
+      );
+    }
+
+    // Fetch and render events for this day
+    Events.renderInModal([], true);
+    try {
+      const evs = await API.fetchEvents(iso);
+      Events.renderInModal(evs, false);
+    } catch (_) {
+      Events.renderInModal([], false);
     }
 
     dayModal.hidden = false;
@@ -820,6 +884,338 @@ const App = (() => {
   return { init, loadData, deleteBirthday };
 })();
 
+
+/* ══════════════════════════════════════════════════════════════
+   16. CARD GENERATOR — AI-powered birthday card modal
+══════════════════════════════════════════════════════════════ */
+const CardGenerator = (() => {
+  /* ── DOM refs ── */
+  const cardModal        = document.getElementById("cardModal");
+  const cardOptions      = document.getElementById("cardOptions");
+  const cardPreviewEl    = document.getElementById("cardPreview");
+  const cardForName      = document.getElementById("cardForName");
+  const cardForAge       = document.getElementById("cardForAge");
+  const cardRelationship = document.getElementById("cardRelationship");
+  const birthdayCard     = document.getElementById("birthdayCard");
+  const cardBgOverlay    = document.getElementById("cardBgOverlay");
+  const cardEmoji        = document.getElementById("cardEmoji");
+  const cardRecipient    = document.getElementById("cardRecipient");
+  const cardShortMsg     = document.getElementById("cardShortMsg");
+  const cardLongMsg      = document.getElementById("cardLongMsg");
+  const cardFooterDate   = document.getElementById("cardFooterDate");
+  const confettiCanvas   = document.getElementById("confettiCanvas");
+  const generateCardBtn  = document.getElementById("generateCardBtn");
+  const regenCardBtn     = document.getElementById("regenCardBtn");
+  const aiBgBtn          = document.getElementById("aiBgBtn");
+  const dlPng            = document.getElementById("downloadPng");
+  const dlPdf            = document.getElementById("downloadPdf");
+  const closeBtn         = document.getElementById("closeCardModal");
+  const cancelBtn        = document.getElementById("cancelCardModal");
+
+  /* ── State ── */
+  let _activeBd    = null;
+  let _activeTone  = "Emotional";
+  let _activeTheme = "Classic";
+  let _useAiBg     = false;
+  let _confettiRAF = null;
+  let _confettiPieces = [];
+
+  /* ── Pill selection ── */
+  function _wire() {
+    document.querySelectorAll(".tone-btn").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tone-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        _activeTone = btn.dataset.tone;
+      })
+    );
+    document.querySelectorAll(".theme-btn").forEach((btn) =>
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".theme-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        _activeTheme = btn.dataset.theme;
+      })
+    );
+    document.getElementById("useAiBg").addEventListener("change", (e) => {
+      _useAiBg = e.target.checked;
+    });
+
+    generateCardBtn?.addEventListener("click",  generate);
+    regenCardBtn?.addEventListener("click",     generate);
+    aiBgBtn?.addEventListener("click",          _generateAiBg);
+    dlPng?.addEventListener("click",            downloadPng);
+    dlPdf?.addEventListener("click",            downloadPdf);
+    closeBtn?.addEventListener("click",         close);
+    cancelBtn?.addEventListener("click",        close);
+
+    cardModal?.addEventListener("click", (e) => {
+      if (e.target === cardModal) close();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && cardModal && !cardModal.hidden) close();
+    });
+  }
+
+  /* ── Public: open ── */
+  function open(bd) {
+    if (!cardModal) return;
+    _activeBd = bd;
+
+    // Reset to step 1
+    cardOptions.hidden   = false;
+    cardPreviewEl.hidden = true;
+    cardRelationship.value = "";
+
+    // Default pill selections
+    document.querySelectorAll(".tone-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".theme-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelector('.tone-btn[data-tone="Emotional"]')?.classList.add("active");
+    document.querySelector('.theme-btn[data-theme="Classic"]')?.classList.add("active");
+    _activeTone  = "Emotional";
+    _activeTheme = "Classic";
+    _useAiBg     = false;
+    document.getElementById("useAiBg").checked = false;
+
+    // Populate banner
+    const age = _calcAgeCard(bd.date);
+    cardForName.textContent = escHtml(bd.name);
+    cardForAge.textContent  = age !== null ? `Age ${age}` : "";
+
+    cardModal.hidden = false;
+    cardRelationship.focus();
+  }
+
+  function _calcAgeCard(dateISO) {
+    const yr = parseInt((dateISO || "").split("-")[0], 10);
+    if (!yr || yr < 1900) return null;
+    return new Date().getFullYear() - yr;
+  }
+
+  /* ── Public: close ── */
+  function close() {
+    if (!cardModal) return;
+    stopConfetti();
+    cardModal.hidden = true;
+    _activeBd = null;
+  }
+
+  /* ── Generate card text ── */
+  async function generate() {
+    if (!_activeBd) return;
+    const age = _calcAgeCard(_activeBd.date);
+    const body = {
+      name:         _activeBd.name,
+      age:          age,
+      relationship: cardRelationship.value.trim() || "friend",
+      tone:         _activeTone,
+    };
+
+    generateCardBtn && (generateCardBtn.disabled = true);
+    regenCardBtn    && (regenCardBtn.disabled    = true);
+
+    try {
+      showSpinner(true);
+      const data = await API.generateCard(body);
+      if (data.fallback) {
+        Toast.show("No API key — using built-in card template.", "info");
+      }
+      if (aiBgBtn) { aiBgBtn.disabled = false; aiBgBtn.title = "Generate themed background"; }
+      _showCard(data);
+    } catch (err) {
+      Toast.show(err.message || "Card generation failed.", "error");
+    } finally {
+      showSpinner(false);
+      generateCardBtn && (generateCardBtn.disabled = false);
+      regenCardBtn    && (regenCardBtn.disabled    = false);
+    }
+  }
+
+  /* ── Render card preview ── */
+  function _showCard(data) {
+    const TONE_EMOJI = { Funny: "😂", Emotional: "💖", Professional: "🤝", "Best Friend": "🥳" };
+
+    birthdayCard.setAttribute("data-cardtheme", _activeTheme);
+    cardEmoji.textContent      = TONE_EMOJI[data.tone] ?? "🎂";
+    cardRecipient.textContent  = data.name;
+    cardShortMsg.textContent   = data.short_message;
+    cardLongMsg.textContent    = data.long_message;
+    cardFooterDate.textContent = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+    // Clear old AI background (overlay image + any inline gradient on the card)
+    cardBgOverlay.style.backgroundImage = "";
+    cardBgOverlay.classList.remove("loaded");
+    birthdayCard.style.background = "";  // clear any gradient fallback
+
+    cardOptions.hidden   = true;
+    cardPreviewEl.hidden = false;
+
+    // Defer confetti until after the browser has laid out the newly-visible card
+    // so offsetWidth/Height return real pixel dimensions.
+    requestAnimationFrame(() => requestAnimationFrame(launchConfetti));
+
+    if (_useAiBg) _generateAiBg();
+  }
+
+  /* ── AI Background image ── */
+  async function _generateAiBg() {
+    if (!_activeBd) return;
+    aiBgBtn && (aiBgBtn.disabled = true);
+    try {
+      showSpinner(true);
+      const data = await API.generateCardImage({ theme: _activeTheme, tone: _activeTone });
+
+      if (data.gradient && data.fallback) {
+        // No API key — paint the gradient directly onto the card so it exports
+        // correctly in PNG/PDF without fighting the white image scrim.
+        birthdayCard.style.background = data.gradient;
+        Toast.show("Using themed gradient (add OPENAI_API_KEY for DALL·E images).", "info");
+      } else if (data.image_url) {
+        const img = new Image();
+        img.onload = () => {
+          cardBgOverlay.style.backgroundImage = `url('${data.image_url}')`;
+          cardBgOverlay.classList.add("loaded");
+        };
+        img.src = data.image_url;
+      }
+    } catch (err) {
+      Toast.show(err.message || "Background image generation failed.", "error");
+    } finally {
+      showSpinner(false);
+      aiBgBtn && (aiBgBtn.disabled = false);
+    }
+  }
+
+  /* ── Confetti ── */
+  function launchConfetti() {
+    if (!confettiCanvas) return;
+    stopConfetti();
+    const ctx = confettiCanvas.getContext("2d");
+    const W   = confettiCanvas.width  = confettiCanvas.offsetWidth;
+    const H   = confettiCanvas.height = confettiCanvas.offsetHeight;
+    const COLORS = ["#ff6b6b","#ffd93d","#6bcb77","#4d96ff","#ff922b","#cc5de8","#f06595"];
+    _confettiPieces = Array.from({ length: 110 }, () => ({
+      x: Math.random() * W, y: Math.random() * H - H,
+      r: Math.random() * 7 + 3,
+      d: Math.random() * 110 + 20,
+      c: COLORS[Math.floor(Math.random() * COLORS.length)],
+      t: Math.random() * Math.PI * 2,
+      ts: Math.random() * 0.04 + 0.02,
+    }));
+    let frame = 0;
+    const TOTAL = 250;
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      const alpha = frame < 150 ? 1 : 1 - (frame - 150) / 100;
+      ctx.globalAlpha = Math.max(0, alpha);
+      _confettiPieces.forEach((p) => {
+        p.t += p.ts;
+        p.y += Math.cos(p.d) + 1.2 + p.r / 6;
+        p.x += Math.sin(frame / 20);
+        if (p.y > H) { p.y = -10; p.x = Math.random() * W; }
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = p.c;
+        ctx.fill();
+      });
+      frame++;
+      if (frame < TOTAL) _confettiRAF = requestAnimationFrame(draw);
+      else stopConfetti();
+    }
+    _confettiRAF = requestAnimationFrame(draw);
+  }
+
+  function stopConfetti() {
+    if (_confettiRAF) { cancelAnimationFrame(_confettiRAF); _confettiRAF = null; }
+    if (confettiCanvas) {
+      const ctx = confettiCanvas.getContext("2d");
+      ctx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    }
+  }
+
+  /* ── Stamp live computed styles into the html2canvas clone ── */
+  function _fixCloneColors(clonedDoc) {
+    const cloneCard = clonedDoc.getElementById("birthdayCard");
+    if (!cloneCard) return;
+    // Propagate the data-cardtheme attribute explicitly (html2canvas may miss it)
+    cloneCard.setAttribute("data-cardtheme", birthdayCard.getAttribute("data-cardtheme") || "Classic");
+    // Inline computed color + opacity for every text node so attr-selector rules
+    // that html2canvas fails to resolve are replaced with concrete values.
+    const targets = [
+      "#cardEmoji", "#cardRecipient", "#cardShortMsg",
+      "#cardLongMsg", "#cardFooterDate", ".card-divider",
+      ".card-top-band", ".card-corner"
+    ];
+    targets.forEach(sel => {
+      const live  = birthdayCard.querySelector(sel);
+      const clone = cloneCard.querySelector(sel);
+      if (!live || !clone) return;
+      const cs = window.getComputedStyle(live);
+      clone.style.color      = cs.color;
+      clone.style.opacity    = cs.opacity;
+      clone.style.fontWeight = cs.fontWeight;
+      clone.style.fontStyle  = cs.fontStyle;
+      clone.style.background = cs.background;
+    });
+    // Also fix the card's own background (covers both theme gradient and gradient fallback)
+    const cs = window.getComputedStyle(birthdayCard);
+    cloneCard.style.background = birthdayCard.style.background || cs.background;
+    cloneCard.style.color      = cs.color;
+    // If a DALL-E background image is loaded on the overlay, copy it too
+    const liveOverlay  = birthdayCard.querySelector("#cardBgOverlay");
+    const cloneOverlay = cloneCard.querySelector("#cardBgOverlay");
+    if (liveOverlay && cloneOverlay && liveOverlay.style.backgroundImage) {
+      cloneOverlay.style.backgroundImage = liveOverlay.style.backgroundImage;
+      cloneOverlay.style.opacity = "1";
+    }
+  }
+
+  /* ── Downloads ── */
+  async function downloadPng() {
+    if (!birthdayCard || typeof html2canvas === "undefined") {
+      Toast.show("html2canvas not loaded.", "error"); return;
+    }
+    try {
+      showSpinner(true);
+      const canvas = await html2canvas(birthdayCard, {
+        scale: 3, useCORS: true, allowTaint: true,
+        onclone: (_doc) => _fixCloneColors(_doc)
+      });
+      const a = document.createElement("a");
+      a.href     = canvas.toDataURL("image/png");
+      a.download = `birthday-card-${(_activeBd?.name || "card").replace(/\s+/g, "_")}.png`;
+      a.click();
+    } catch (e) {
+      Toast.show("PNG export failed.", "error");
+    } finally { showSpinner(false); }
+  }
+
+  async function downloadPdf() {
+    if (!birthdayCard || typeof html2canvas === "undefined" || !window.jspdf?.jsPDF) {
+      Toast.show("PDF library failed to load. Check your internet connection.", "error"); return;
+    }
+    try {
+      showSpinner(true);
+      const canvas = await html2canvas(birthdayCard, {
+        scale: 2, useCORS: true, allowTaint: true,
+        onclone: (_doc) => _fixCloneColors(_doc)
+      });
+      const imgData = canvas.toDataURL("image/png");
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a5" });
+      const pW = pdf.internal.pageSize.getWidth();
+      const pH = pdf.internal.pageSize.getHeight();
+      pdf.addImage(imgData, "PNG", 0, 0, pW, pH);
+      pdf.save(`birthday-card-${(_activeBd?.name || "card").replace(/\s+/g, "_")}.pdf`);
+    } catch (e) {
+      Toast.show("PDF export failed.", "error");
+    } finally { showSpinner(false); }
+  }
+
+  /* ── Init ── */
+  document.addEventListener("DOMContentLoaded", _wire);
+
+  return { open, close };
+})();
 
 /* ══════════════════════════════════════════════════════════════
    Boot the app once the DOM is ready.

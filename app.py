@@ -11,6 +11,17 @@ import json
 import os
 import uuid
 from datetime import datetime
+import re
+
+try:
+    import openai
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OPENAI_AVAILABLE = False
+
+# ── OpenAI Configuration ──────────────────────────────────────────────────────
+# Set OPENAI_API_KEY in your environment variables or replace the default below.
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 
 # ── App Setup ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
@@ -291,6 +302,255 @@ def delete_event(event_id: str):
     return jsonify({"message": "Deleted", "id": event_id}), 200
 
 
+# ── AI Card Generation ─────────────────────────────────────────────────────────────
+
+
+def _openai_client():
+    """Return a configured OpenAI client, or abort 500 if unavailable."""
+    if not _OPENAI_AVAILABLE:
+        abort(500, description="openai package is not installed. Run: pip install openai")
+    if not OPENAI_API_KEY:
+        abort(500, description="OPENAI_API_KEY is not configured. Set it as an environment variable.")
+    return openai.OpenAI(api_key=OPENAI_API_KEY)
+
+
+def _strip_code_fences(text: str) -> str:
+    """Remove ```json ... ``` or ``` ... ``` wrappers from AI output."""
+    text = text.strip()
+    text = re.sub(r'^```[a-z]*\s*', '', text)
+    text = re.sub(r'\s*```$', '', text)
+    return text.strip()
+
+
+def _template_card(name, age, relationship, tone):
+    """Return a built-in template card when no OpenAI key is available."""
+    import random
+    age_str = f", turning {age}" if age else ""
+    rel = relationship or "friend"
+
+    templates = {
+        "Funny": {
+            "short": [
+                f"Warning: {name} is now officially older! 🎉",
+                f"Age is just a number, {name} — yours is just getting bigger! 😄",
+                f"Happy Birthday {name}! You're not old, you're vintage! 🥂",
+            ],
+            "long": [
+                f"Congratulations, {name}{age_str} on surviving another trip around the sun! "
+                f"As your {rel}, I can confirm that you only get more fabulous with age — "
+                f"like a fine cheese, or a vintage meme that never gets old. "
+                f"Here's to another year of questionable decisions, great laughs, "
+                f"and me being lucky enough to witness all of it. Cheers! 🎂",
+            ],
+        },
+        "Emotional": {
+            "short": [
+                f"To {name}: thank you for making the world brighter. 💖",
+                f"Happy Birthday {name} — here's to the person who means the world. 🌟",
+                f"Every day is better with {name} in it. Happy Birthday! 💞",
+            ],
+            "long": [
+                f"Dear {name}{age_str}, birthdays are a beautiful reminder of "
+                f"how grateful we are to have you in our lives. "
+                f"As your {rel}, I've had the privilege of watching you grow, "
+                f"laugh, and light up every room you walk into. "
+                f"Today I want you to know how deeply cherished and celebrated you are — "
+                f"not just today, but every single day. Happy Birthday with all my heart. 💖",
+            ],
+        },
+        "Professional": {
+            "short": [
+                f"Wishing {name} a wonderful birthday and continued success! 🎉",
+                f"Happy Birthday {name} — your contributions make all the difference. 🌟",
+                f"Warmest birthday wishes to {name} on this special day! 🥂",
+            ],
+            "long": [
+                f"On behalf of everyone who has had the pleasure of working alongside you, "
+                f"Happy Birthday {name}{age_str}! "
+                f"Your dedication, professionalism, and positive attitude are an inspiration. "
+                f"As your {rel}, I want to take this moment to recognise not just your "
+                f"professional achievements, but the genuine warmth you bring to everything you do. "
+                f"Wishing you a wonderful year ahead filled with well-deserved success and happiness.",
+            ],
+        },
+        "Best Friend": {
+            "short": [
+                f"Happy Birthday to my absolute favourite human, {name}! 🥳",
+                f"{name}!! It's your day — let's make it legendary! 🎊",
+                f"To {name}: my ride-or-die, my partner in crime, HAPPY BIRTHDAY! 🎂",
+            ],
+            "long": [
+                f"HAPPY BIRTHDAY {name.upper()}!! 🎉🎉🎉 "
+                f"Okay I know I say this every year but I genuinely cannot believe "
+                f"how lucky I am to call you my {rel}. "
+                f"You're the person I text at 2am, the one who gets all my weird references, "
+                f"and honestly the best human I know{age_str}. "
+                f"Today is ALL about you — eat the cake, sleep in, and know that "
+                f"I'm celebrating you with my whole heart. Love you to bits! 🥳💕",
+            ],
+        },
+    }
+
+    bucket = templates.get(tone, templates["Emotional"])
+    return {
+        "short_message": random.choice(bucket["short"]),
+        "long_message":  random.choice(bucket["long"]),
+    }
+
+
+@app.route("/api/generate_card", methods=["POST"])
+def generate_card():
+    """
+    POST /api/generate_card
+    Body (JSON): { "name": str, "age": int|str (optional), "relationship": str, "tone": str }
+    Returns: { "short_message": str, "long_message": str, "name", "age", "tone" }
+
+    Tone options: Funny | Emotional | Professional | Best Friend
+    Falls back to built-in templates when OPENAI_API_KEY is not set.
+    """
+    body = request.get_json(silent=True)
+    if not body:
+        abort(400, description="Request body must be JSON.")
+
+    name         = (body.get("name")         or "").strip()
+    age          = body.get("age", "")           # may be empty / 0
+    relationship = (body.get("relationship") or "friend").strip()
+    tone         = (body.get("tone")         or "Emotional").strip()
+
+    if not name:
+        abort(400, description="'name' is required.")
+
+    # ── Fallback: use built-in templates when no API key is configured ─────────
+    if not _OPENAI_AVAILABLE or not OPENAI_API_KEY:
+        result = _template_card(name, age, relationship, tone)
+        return jsonify({
+            "short_message": result["short_message"],
+            "long_message":  result["long_message"],
+            "name":          name,
+            "age":           age,
+            "tone":          tone,
+            "fallback":      True,
+        }), 200
+
+    # ── AI generation ─────────────────────────────────────────────────────────
+    tone_guide = {
+        "Funny":        "Use clever wordplay and lighthearted humour. Keep it witty and fun, not slapstick.",
+        "Emotional":    "Express deep warmth and genuine affection. Let it feel sincere and moving without being overly dramatic.",
+        "Professional": "Strike a polished, respectful tone — warm but workplace-appropriate.",
+        "Best Friend":  "Write as if you've known this person for years — casual, inside-joke-friendly, bursting with fondness.",
+    }.get(tone, "Express genuine warmth and care.")
+
+    age_clause = f"who is turning {age}" if age else "who is celebrating their birthday"
+
+    prompt = (
+        f"Write a birthday message for {name} {age_clause}.\n"
+        f"Relationship to sender: {relationship}\n"
+        f"Tone: {tone}. {tone_guide}\n\n"
+        "Return ONLY valid JSON — no markdown, no extra text — with exactly these two keys:\n"
+        '{\n'
+        '  "short_message": "One catchy birthday headline (max 15 words, no internal quotes)",\n'
+        '  "long_message":  "A warm, detailed paragraph of 4-5 lines — make it feel personal and unique; avoid clichés like \'may all your dreams come true\'"\n'
+        '}'
+    )
+
+    client = _openai_client()
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a creative birthday message writer. Respond with valid JSON only."},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.88,
+            max_tokens=450,
+        )
+    except openai.AuthenticationError:
+        abort(401, description="Invalid OpenAI API key. Check OPENAI_API_KEY environment variable.")
+    except openai.RateLimitError:
+        abort(429, description="OpenAI rate limit reached. Please wait a moment and try again.")
+    except openai.APIError as exc:
+        abort(502, description=f"OpenAI API error: {exc}")
+    except Exception as exc:
+        abort(500, description=f"Unexpected error calling OpenAI: {exc}")
+
+    raw = _strip_code_fences(response.choices[0].message.content or "")
+    try:
+        result = json.loads(raw)
+    except json.JSONDecodeError:
+        abort(500, description="AI returned malformed JSON. Please try again.")
+
+    if "short_message" not in result or "long_message" not in result:
+        abort(500, description="AI response is missing required fields. Please try again.")
+
+    return jsonify({
+        "short_message": result["short_message"],
+        "long_message":  result["long_message"],
+        "name":          name,
+        "age":           age,
+        "tone":          tone,
+    }), 200
+
+
+@app.route("/api/generate_card_image", methods=["POST"])
+def generate_card_image():
+    """
+    POST /api/generate_card_image
+    Body (JSON): { "theme": str, "tone": str }
+    Returns: { "image_url": str }  — a temporary DALL-E URL (expires in ~1 hour)
+             OR { "gradient": str, "fallback": true } when no API key is set.
+    """
+    body = request.get_json(silent=True) or {}
+    theme = (body.get("theme") or "Classic").strip()
+    tone  = (body.get("tone")  or "Emotional").strip()
+
+    # Gradient fallbacks per theme — used when no DALL-E key is available
+    GRADIENTS = {
+        "Classic":  "linear-gradient(135deg, #fce4ec 0%, #f8bbd0 30%, #e1bee7 60%, #f3e5f5 100%)",
+        "Cute":     "linear-gradient(135deg, #ffd6f5 0%, #ffb3e6 25%, #d4aaff 60%, #ffe0f7 100%)",
+        "Modern":   "linear-gradient(135deg, #1a0533 0%, #2d1b69 35%, #0d47a1 70%, #1a237e 100%)",
+        "Minimal":  "linear-gradient(135deg, #f5f5f5 0%, #ede7f6 50%, #e8eaf6 100%)",
+    }
+
+    # ── No API key: return a CSS gradient so the button still does something useful
+    if not _OPENAI_AVAILABLE or not OPENAI_API_KEY:
+        gradient = GRADIENTS.get(theme, GRADIENTS["Classic"])
+        return jsonify({"gradient": gradient, "fallback": True}), 200
+
+    theme_prompt = {
+        "Classic":  "elegant birthday celebration, soft watercolour flowers, gold ribbon, cream background, timeless style",
+        "Cute":     "adorable pastel birthday party, cartoon balloons, confetti, kawaii style, pink and lavender palette",
+        "Modern":   "sleek modern birthday design, abstract geometric shapes, bold colours, dark background, neon accents",
+        "Minimal":  "minimalist birthday card, clean white background, single delicate flower, thin elegant lines, subtle pastel accents",
+    }.get(theme, "beautiful birthday celebration, colourful balloons and confetti")
+
+    image_prompt = (
+        f"Digital illustration: {theme_prompt}. "
+        "No text or letters anywhere in the image. "
+        "Suitable as a birthday card background. High quality, vibrant, celebratory."
+    )
+
+    client = _openai_client()
+    try:
+        img_response = client.images.generate(
+            model="dall-e-3",
+            prompt=image_prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        image_url = img_response.data[0].url
+    except openai.AuthenticationError:
+        abort(401, description="Invalid OpenAI API key.")
+    except openai.RateLimitError:
+        abort(429, description="OpenAI rate limit reached.")
+    except openai.APIError as exc:
+        abort(502, description=f"OpenAI image API error: {exc}")
+    except Exception as exc:
+        abort(500, description=f"Image generation failed: {exc}")
+
+    return jsonify({"image_url": image_url}), 200
+
+
 # ── Error Handlers ────────────────────────────────────────────────────────────
 
 @app.errorhandler(400)
@@ -298,14 +558,29 @@ def bad_request(e):
     return jsonify({"error": str(e.description)}), 400
 
 
+@app.errorhandler(401)
+def unauthorized(e):
+    return jsonify({"error": str(e.description)}), 401
+
+
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": str(e.description)}), 404
 
 
+@app.errorhandler(429)
+def rate_limited(e):
+    return jsonify({"error": str(e.description)}), 429
+
+
 @app.errorhandler(500)
 def server_error(e):
-    return jsonify({"error": "Internal server error."}), 500
+    return jsonify({"error": str(e.description) if e.description else "Internal server error."}), 500
+
+
+@app.errorhandler(502)
+def bad_gateway(e):
+    return jsonify({"error": str(e.description)}), 502
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
