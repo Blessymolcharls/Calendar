@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Birthday Reminder</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <!-- App Stylesheet -->
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+  <!-- ═══════════════ HEADER ═══════════════ -->
+  <header class="app-header">
+    <div class="header-left">
+      <span class="app-logo">🎂</span>
+      <h1 class="app-title">Birthday Reminder</h1>
+    </div>
+    <div class="header-right">
+      <!-- Dark Mode Toggle -->
+      <button id="themeToggle" class="btn-icon" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <span id="themeIcon">🌙</span>
+      </button>
+      <!-- Add Birthday Button -->
+      <button id="addBirthdayBtn" class="btn btn-primary">+ Add Birthday</button>
+    </div>
+  </header>
+
+  <!-- ═══════════════ MAIN LAYOUT ═══════════════ -->
+  <main class="app-layout">
+
+    <!-- ── LEFT: Calendar Panel ── -->
+    <section class="panel calendar-panel" aria-label="Calendar">
+
+      <!-- Month / Year Navigation -->
+      <div class="calendar-nav">
+        <button id="prevMonth" class="btn-icon" aria-label="Previous month">&#8592;</button>
+        <h2 id="monthYearLabel" class="month-label"></h2>
+        <button id="nextMonth" class="btn-icon" aria-label="Next month">&#8594;</button>
+      </div>
+
+      <!-- Day-of-week headers (Sun → Sat) -->
+      <div class="calendar-weekdays" aria-hidden="true">
+        <span>Sun</span><span>Mon</span><span>Tue</span>
+        <span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+      </div>
+
+      <!-- Calendar grid — filled dynamically by JS -->
+      <div class="calendar-grid" id="calendarGrid" role="grid" aria-label="Calendar days"></div>
+
+      <!-- Legend -->
+      <div class="calendar-legend">
+        <span class="legend-dot today-dot"></span><span>Today</span>
+        <span class="legend-dot birthday-dot"></span><span>Birthday</span>
+      </div>
+    </section>
+
+    <!-- ── RIGHT: Sidebar ── -->
+    <aside class="sidebar">
+
+      <!-- Upcoming Birthdays -->
+      <section class="panel upcoming-panel" aria-label="Upcoming Birthdays">
+        <h3 class="panel-title">
+          🎉 Upcoming <span class="badge" id="upcomingBadge">0</span>
+        </h3>
+        <div class="upcoming-controls">
+          <label for="upcomingDays" class="upcoming-label">within</label>
+          <select id="upcomingDays" class="select-sm">
+            <option value="7">7 days</option>
+            <option value="14">14 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="60">60 days</option>
+          </select>
+        </div>
+        <!-- Upcoming list populated by JS -->
+        <ul class="upcoming-list" id="upcomingList" aria-label="Upcoming birthdays list"></ul>
+      </section>
+
+      <!-- All Birthdays (scrollable list) -->
+      <section class="panel all-birthdays-panel" aria-label="All Birthdays">
+        <div class="panel-title-row">
+          <h3 class="panel-title">📋 All Birthdays</h3>
+          <input
+            id="searchInput"
+            class="search-input"
+            type="search"
+            placeholder="Search..."
+            aria-label="Search birthdays"
+          />
+        </div>
+        <!-- Birthday list populated by JS -->
+        <ul class="birthday-list" id="birthdayList" aria-label="All birthdays list"></ul>
+        <p class="empty-msg" id="emptyMsg" hidden>No birthdays saved yet.</p>
+      </section>
+
+    </aside>
+  </main>
+
+  <!-- ═══════════════ ADD / EDIT MODAL ═══════════════ -->
+  <div class="modal-backdrop" id="birthdayModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle">Add Birthday</h2>
+        <button class="btn-icon modal-close" id="closeModal" aria-label="Close modal">&times;</button>
+      </div>
+
+      <form id="birthdayForm" novalidate>
+        <!-- Hidden id for edit mode -->
+        <input type="hidden" id="birthdayId"/>
+
+        <div class="form-group">
+          <label for="bdName">Name <span class="required">*</span></label>
+          <input
+            type="text" id="bdName" name="name"
+            placeholder="e.g. Alice Johnson"
+            autocomplete="off" required
+          />
+          <span class="field-error" id="nameError"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="bdDate">Birth Date <span class="required">*</span></label>
+          <input type="date" id="bdDate" name="date" required/>
+          <span class="field-error" id="dateError"></span>
+        </div>
+
+        <div class="form-group">
+          <label for="bdNote">Note <span class="optional">(optional)</span></label>
+          <textarea id="bdNote" name="note" rows="3" placeholder="e.g. Loves chocolate cake 🍰"></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-ghost" id="cancelModal">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="saveBtn">Save Birthday</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══════════════ DAY DETAIL MODAL ═══════════════ -->
+  <div class="modal-backdrop" id="dayModal" role="dialog" aria-modal="true" aria-labelledby="dayModalTitle" hidden>
+    <div class="modal-card modal-card-sm">
+
+      <!-- Header: shows the clicked date -->
+      <div class="modal-header">
+        <h2 class="modal-title" id="dayModalTitle"></h2>
+        <button class="btn-icon modal-close" id="closeDayModal" aria-label="Close">&times;</button>
+      </div>
+
+      <!-- ── Events Section ── -->
+      <div class="day-modal-section">
+        <div class="day-section-title">📅 Events</div>
+
+        <!-- Events for this day populated by JS -->
+        <div id="dayEventList" class="day-event-list"></div>
+
+        <!-- Inline form to add a new event -->
+        <form class="event-add-form" id="eventAddForm" novalidate>
+          <input
+            type="text"
+            id="eventTitleInput"
+            placeholder="New event title…"
+            autocomplete="off"
+            maxlength="80"
+            required
+          />
+          <button type="submit" class="btn-add-event">Add</button>
+        </form>
+        <span class="field-error" id="eventTitleError"></span>
+      </div>
+
+      <hr class="day-section-divider"/>
+
+      <!-- ── Birthdays Section ── -->
+      <div class="day-modal-section">
+        <div class="day-section-title">🎂 Birthdays</div>
+        <div id="dayBirthdayList" class="day-birthday-list"></div>
+        <div class="form-actions" style="justify-content:flex-start; margin-top:0.75rem;">
+          <button class="btn btn-primary btn-sm" id="addOnDayBtn">+ Add Birthday</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════ TOAST NOTIFICATION ═══════════════ -->
+  <div class="toast" id="toast" role="alert" aria-live="polite"></div>
+
+  <!-- ═══════════════ LOADING SPINNER ═══════════════ -->
+  <div class="spinner-overlay" id="spinner" hidden aria-hidden="true">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- App JavaScript (loaded after DOM) -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
