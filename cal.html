@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Birthday Calendar App</title>
+  <style>
+    body {
+        font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+        background: linear-gradient(135deg, #f8fafc 0%, #e0eafc 100%);
+        margin: 0;
+        padding: 0;
+        color: #444;
+    }
+    header {
+        background: linear-gradient(90deg, #a3d2ca 60%, #f7d9c4 100%);
+        padding: 1.2rem 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 2px solid #fff;
+        box-shadow: 0 2px 8px rgba(163, 210, 202, 0.15);
+    }
+    header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        color: #355c7d;
+    }
+    nav button {
+        background: none;
+        border: none;
+        margin: 0 0.7rem;
+        font-size: 1.1rem;
+        cursor: pointer;
+        color: #355c7d;
+        padding: 0.4rem 0.8rem;
+        border-radius: 20px;
+        transition: background 0.2s, color 0.2s;
+    }
+    nav button.active,
+    nav button:hover {
+        background: #f7d9c4;
+        color: #6c5b7b;
+        font-weight: bold;
+        box-shadow: 0 2px 8px rgba(247, 217, 196, 0.15);
+    }
+    main {
+        padding: 2rem 1rem;
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    #monthYear {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: #6c5b7b;
+        margin-bottom: 1.5rem;
+        letter-spacing: 1px;
+    }
+    .calendar {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 8px;
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 4px 24px rgba(163, 210, 202, 0.08);
+        padding: 1rem;
+    }
+    .day {
+        background: linear-gradient(135deg, #f7d9c4 0%, #a3d2ca 100%);
+        padding: 0.7rem;
+        border-radius: 12px;
+        border: none;
+        height: 70px;
+        position: relative;
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(163, 210, 202, 0.10);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .day:hover {
+        transform: scale(1.04);
+        box-shadow: 0 6px 16px rgba(163, 210, 202, 0.18);
+        background: linear-gradient(135deg, #e0eafc 0%, #f7d9c4 100%);
+    }
+    .date-number {
+        font-weight: bold;
+        font-size: 1.1rem;
+        color: #355c7d;
+    }
+    .birthday-marker {
+        position: absolute;
+        bottom: 8px;
+        right: 10px;
+        font-size: 1.3rem;
+        filter: drop-shadow(0 2px 4px #fff);
+    }
+    #listView,
+    #upcomingView {
+        display: none;
+    }
+    #listView.active,
+    #upcomingView.active {
+        display: block;
+    }
+    .birthday-list {
+        max-height: 400px;
+        overflow-y: auto;
+        background: #fff;
+        padding: 1rem;
+        border-radius: 12px;
+        border: none;
+        box-shadow: 0 4px 24px rgba(163, 210, 202, 0.08);
+    }
+    .birthday-item {
+        padding: 0.7rem 0.5rem;
+        border-bottom: 1px solid #f7d9c4;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 1.05rem;
+        color: #444;
+    }
+    .birthday-item:last-child {
+        border-bottom: none;
+    }
+    .controls button {
+        margin-left: 0.3rem;
+        background: #a3d2ca;
+        border: none;
+        padding: 0.3rem 0.7rem;
+        border-radius: 8px;
+        cursor: pointer;
+        color: #355c7d;
+        font-weight: 600;
+        transition: background 0.2s;
+    }
+    .controls button:hover {
+        background: #f7d9c4;
+        color: #6c5b7b;
+    }
+    .modal {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(163, 210, 202, 0.18);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s;
+        z-index: 1000;
+    }
+    .modal.active {
+        opacity: 1;
+        pointer-events: all;
+    }
+    .modal-content {
+        background: #fff;
+        padding: 2rem 1.5rem;
+        border-radius: 18px;
+        max-width: 420px;
+        width: 95%;
+        position: relative;
+        box-shadow: 0 8px 32px rgba(163, 210, 202, 0.18);
+    }
+    .modal-close {
+        position: absolute;
+        top: 14px;
+        right: 18px;
+        background: none;
+        border: none;
+        font-size: 1.5rem;
+        color: #355c7d;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    form input, form textarea, form button {
+        width: 100%;
+        margin-bottom: 1rem;
+        padding: 0.7rem;
+        border-radius: 8px;
+        border: 1px solid #a3d2ca;
+        font-size: 1rem;
+        box-sizing: border-box;
+        background: #f8fafc;
+        color: #444;
+        transition: border 0.2s;
+    }
+    form input:focus, form textarea:focus {
+        border: 1.5px solid #355c7d;
+        outline: none;
+    }
+    form button {
+        background: linear-gradient(90deg, #a3d2ca 60%, #f7d9c4 100%);
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        color: #355c7d;
+        transition: background 0.2s;
+    }
+    form button:hover {
+        background: #f7d9c4;
+        color: #6c5b7b;
+    }
+    .toast {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: linear-gradient(90deg, #f7d9c4 60%, #a3d2ca 100%);
+        padding: 1rem 2rem;
+        border-radius: 14px;
+        border: none;
+        color: #355c7d;
+        font-size: 1.1rem;
+        box-shadow: 0 2px 12px rgba(163, 210, 202, 0.12);
+        display: none;
+        z-index: 2000;
+    }
+    .toast.active {
+        display: block;
+        animation: fadein 0.3s, fadeout 0.3s 3s;
+    }
+    @keyframes fadein {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes fadeout {
+        from { opacity: 1; }
+        to { opacity: 0; }
+    }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Birthday Calendar</h1>
+    <nav>
+      <button id="navCalendar" class="active">Calendar</button>
+      <button id="navList">Birthday List</button>
+      <button id="navUpcoming">Upcoming</button>
+      <button id="addBirthdayBtn">Add Birthday</button>
+    </nav>
+  </header>
+  <main>
+    <!-- Calendar View -->
+    <section id="calendarView" class="active" aria-label="Calendar View">
+      <div id="monthYear" style="text-align: center; margin-bottom:1rem;"></div>
+      <div class="calendar" id="calendarGrid"></div>
+    </section>
+    <!-- Birthday List View -->
+    <section id="listView" aria-label="Birthday List">
+      <h2>All Birthdays</h2>
+      <div class="birthday-list" id="birthdayList"></div>
+    </section>
+    <!-- Upcoming Birthdays View -->
+    <section id="upcomingView" aria-label="Upcoming Birthdays">
+      <h2>Upcoming Birthdays</h2>
+      <div class="birthday-list" id="upcomingList"></div>
+    </section>
+  </main>
+
+  <!-- Day Modal -->
+  <div class="modal" id="dayModal" aria-modal="true">
+    <div class="modal-content">
+      <button class="modal-close" aria-label="Close">&times;</button>
+      <h2 id="modalDateHeading"></h2>
+      <div id="dayBirthdays"></div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Birthday Modal -->
+  <div class="modal" id="birthdayModal" aria-modal="true">
+    <div class="modal-content">
+      <button class="modal-close" aria-label="Close">&times;</button>
+      <h2 id="modalFormHeading">Add Birthday</h2>
+      <form id="birthdayForm">
+        <input type="hidden" id="birthdayId">
+        <label for="name">Name</label>
+        <input type="text" id="name" placeholder="Enter name" required/>
+        <label for="date">Date</label>
+        <input type="date" id="date" required/>
+        <label for="notes">Notes (Optional)</label>
+        <textarea id="notes" rows="3" placeholder="Additional info..."></textarea>
+        <button type="submit" id="saveBirthdayBtn">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    🎉 Today is someone's birthday! 🎉
+    <button id="dismissToast" style="float:right; background:none;border:none;font-weight:bold;">&times;</button>
+  </div>
+
+<script>
+  let birthdays = JSON.parse(localStorage.getItem('birthdays')) || [];
+  let currentDate = new Date();
+  let editing = false;
+
+  // Elements
+  const calendarView = document.getElementById('calendarView');
+  const listView = document.getElementById('listView');
+  const upcomingView = document.getElementById('upcomingView');
+  const navCalendar = document.getElementById('navCalendar');
+  const navList = document.getElementById('navList');
+  const navUpcoming = document.getElementById('navUpcoming');
+  const addBirthdayBtn = document.getElementById('addBirthdayBtn');
+  const calendarGrid = document.getElementById('calendarGrid');
+  const monthYear = document.getElementById('monthYear');
+  const dayModal = document.getElementById('dayModal');
+  const modalDateHeading = document.getElementById('modalDateHeading');
+  const dayBirthdays = document.getElementById('dayBirthdays');
+  const birthdayModal = document.getElementById('birthdayModal');
+  const modalFormHeading = document.getElementById('modalFormHeading');
+  const birthdayForm = document.getElementById('birthdayForm');
+  const birthdayIdInput = document.getElementById('birthdayId');
+  const toast = document.getElementById('toast');
+  const dismissToast = document.getElementById('dismissToast');
+
+  // Format for display
+  function formatDisplayDate(dateStr) {
+    const [yyyy, mm, dd] = dateStr.split("-");
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  // Show view
+  function showView(view) {
+    [calendarView, listView, upcomingView].forEach(v => v.classList.remove('active'));
+    [navCalendar, navList, navUpcoming].forEach(btn => btn.classList.remove('active'));
+    view.classList.add('active');
+  }
+
+  // Navigation
+  navCalendar.addEventListener('click', () => {
+    showView(calendarView);
+    navCalendar.classList.add('active');
+  });
+  navList.addEventListener('click', () => {
+    showView(listView);
+    navList.classList.add('active');
+    renderBirthdayList();
+  });
+  navUpcoming.addEventListener('click', () => {
+    showView(upcomingView);
+    navUpcoming.classList.add('active');
+    renderUpcoming();
+  });
+
+  // Calendar
+  function renderCalendar() {
+    calendarGrid.innerHTML = '';
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    monthYear.textContent = currentDate.toLocaleString('default', { month: 'long' }) + ' ' + year;
+
+    const firstDay = new Date(year, month, 1);
+    const startingDay = firstDay.getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    for (let i = 0; i < startingDay; i++) {
+      const blank = document.createElement('div');
+      blank.classList.add('day');
+      blank.style.background = 'transparent';
+      blank.style.border = 'none';
+      calendarGrid.appendChild(blank);
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dd = String(day).padStart(2, "0");
+      const mm = String(month + 1).padStart(2, "0");
+      const yyyy = year;
+      const dateKey = `${yyyy}-${mm}-${dd}`;
+
+      const dayElem = document.createElement('div');
+      dayElem.classList.add('day');
+      dayElem.setAttribute('data-date', dateKey);
+      dayElem.innerHTML = `<div class="date-number">${day}</div>`;
+
+      if (birthdays.some(b => b.date === dateKey)) {
+        dayElem.innerHTML += `<div class="birthday-marker">🎂</div>`;
+      }
+
+      dayElem.addEventListener('click', () => openDayModal(dateKey));
+      calendarGrid.appendChild(dayElem);
+    }
+  }
+
+  // Day modal
+  function openDayModal(dateKey) {
+    modalDateHeading.textContent = 'Birthdays on ' + formatDisplayDate(dateKey);
+    const dayBirths = birthdays.filter(b => b.date === dateKey);
+    dayBirthdays.innerHTML = dayBirths.length
+      ? dayBirths.map(b => `<p>${b.name} 🎂 ${b.notes ? ' - ' + b.notes : ''}</p>`).join('')
+      : '<p>No birthdays.</p>';
+    dayModal.classList.add('active');
+  }
+
+  // Close modals
+  document.querySelectorAll('.modal-close').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.parentElement.parentElement.classList.remove('active');
+    });
+  });
+
+  // Add birthday
+  addBirthdayBtn.addEventListener('click', () => {
+    editing = false;
+    modalFormHeading.textContent = 'Add Birthday';
+    birthdayForm.reset();
+    birthdayIdInput.value = '';
+    birthdayModal.classList.add('active');
+  });
+
+  // Save birthday
+  birthdayForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const name = document.getElementById('name').value.trim();
+    const dateInput = document.getElementById('date').value.trim(); // YYYY-MM-DD
+    const notes = document.getElementById('notes').value.trim();
+    if (editing) {
+      const id = birthdayIdInput.value;
+      birthdays = birthdays.map(b => b.id === id ? { ...b, name, date: dateInput, notes } : b);
+    } else {
+      birthdays.push({ id: Date.now().toString(), name, date: dateInput, notes });
+    }
+    localStorage.setItem('birthdays', JSON.stringify(birthdays));
+    birthdayModal.classList.remove('active');
+    if (calendarView.classList.contains('active')) {
+      renderCalendar();
+    }
+    renderBirthdayList();
+    renderUpcoming();
+    checkTodayBirthday();
+  });
+
+  // List view
+  function renderBirthdayList() {
+    const listElement = document.getElementById('birthdayList');
+    listElement.innerHTML = '';
+    if (!birthdays.length) return;
+
+    birthdays.forEach(bd => {
+      const bdItem = document.createElement('div');
+      bdItem.classList.add('birthday-item');
+      bdItem.innerHTML = `
+        <span>${bd.name} 🎂 | ${formatDisplayDate(bd.date)} 📅 ${bd.notes ? '| ' + bd.notes + ' 📝' : ''}</span>
+        <span class="controls">
+          <button onclick="editBirthday('${bd.id}')">Edit</button>
+          <button onclick="deleteBirthday('${bd.id}')">Delete</button>
+        </span>
+      `;
+      listElement.appendChild(bdItem);
+    });
+  }
+
+  // Upcoming
+  function renderUpcoming() {
+    const upcomingElement = document.getElementById('upcomingList');
+    upcomingElement.innerHTML = '';
+    if (!birthdays.length) {
+      upcomingElement.innerHTML = '<p>No upcoming birthdays.</p>';
+      return;
+    }
+
+    const today = new Date();
+    const sorted = birthdays.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    const upcoming = sorted.filter(b => new Date(b.date) >= today).slice(0, 5);
+
+    if (!upcoming.length) {
+      upcomingElement.innerHTML = '<p>No upcoming birthdays.</p>';
+      return;
+    }
+
+    upcoming.forEach(bd => {
+      const bdItem = document.createElement('div');
+      bdItem.classList.add('birthday-item');
+      bdItem.innerHTML = `${bd.name} 🎂 - ${formatDisplayDate(bd.date)} 📅 ${bd.notes ? '| ' + bd.notes : ''}`;
+      upcomingElement.appendChild(bdItem);
+    });
+  }
+
+  // Edit birthday
+  function editBirthday(id) {
+    const bd = birthdays.find(b => b.id === id);
+    if (!bd) return;
+    editing = true;
+    modalFormHeading.textContent = 'Edit Birthday';
+    birthdayIdInput.value = bd.id;
+    document.getElementById('name').value = bd.name;
+    document.getElementById('date').value = bd.date; // YYYY-MM-DD works with <input type="date">
+    document.getElementById('notes').value = bd.notes;
+    birthdayModal.classList.add('active');
+  }
+
+  // Delete birthday
+  function deleteBirthday(id) {
+    birthdays = birthdays.filter(b => b.id !== id);
+    localStorage.setItem('birthdays', JSON.stringify(birthdays));
+    if (calendarView.classList.contains('active')) {
+      renderCalendar();
+    }
+    renderBirthdayList();
+    renderUpcoming();
+  }
+
+  // Today birthday toast
+  function checkTodayBirthday() {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    if (birthdays.some(b => b.date === today)) {
+      toast.classList.add('active');
+    } else {
+      toast.classList.remove('active');
+    }
+  }
+  dismissToast.addEventListener('click', () => {
+    toast.classList.remove('active');
+  });
+
+  // Initialize
+  renderCalendar();
+  renderBirthdayList();
+  renderUpcoming();
+  checkTodayBirthday();
+
+  // Expose functions
+  window.editBirthday = editBirthday;
+  window.deleteBirthday = deleteBirthday;
+</script>
+</body>
+</html>
